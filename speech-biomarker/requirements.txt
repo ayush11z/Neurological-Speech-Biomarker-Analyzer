@@ -1,0 +1,16 @@
+deepgram-sdk>=3.0
+python-dotenv
+jiwer
+librosa
+soundfile
+numpy
+pandas
+matplotlib
+seaborn
+scikit-learn
+joblib
+tqdm
+torch
+transformers
+gradio>=4.0
+xlrd

@@ -1,0 +1,15 @@
+venv/
+*.crdownload
+.env
+*.dylib
+*.tar.bz2
+data/raw/
+data/processed/
+__pycache__/
+*.pyc
+.DS_Store
+models/*.pt
+models/*.bin
+outputs/
+.ipynb_checkpoints/
+*.log

@@ -198,7 +198,7 @@ def analyze_audio(audio_input, ground_truth_text: str):
 # ---------- UI ----------
 
 def build_dashboard():
-    with gr.Blocks(title="Neurological Speech Biomarker Analyzer", theme=gr.themes.Soft()) as demo:
+    with gr.Blocks(title="Neurological Speech Biomarker Analyzer") as demo:
         gr.Markdown("""
 # Neurological Speech Biomarker Analyzer
 **Deepgram + Acoustic Biomarkers for Dysarthria Assessment**
@@ -244,4 +244,4 @@ See the [GitHub repo](https://github.com/ayush11z/speech-biomarker) for methodol
 
 if __name__ == "__main__":
     demo = build_dashboard()
-    demo.launch(share=True)
+    demo.launch(share=True, theme=gr.themes.Soft())

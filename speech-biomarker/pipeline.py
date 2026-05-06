@@ -8,17 +8,17 @@ from pathlib import Path
 # From TORGO paper Table 2 — severity per dysarthric speaker
 SEVERITY_MAP = {
     "F01": "severe", "F03": "mild-moderate", "F04": "severe",
-    "FC1": "control", "FC2": "control", "FC3": "control",
+    "FC01": "control", "FC02": "control", "FC03": "control",
     "M01": "severe", "M02": "mild", "M03": "mild",
     "M04": "severe", "M05": "mild-moderate",
-    "MC1": "control", "MC2": "control", "MC3": "control", "MC4": "control",
+    "MC01": "control", "MC02": "control", "MC03": "control", "MC04": "control",
 }
 
 SEX_MAP = {
     "F01": "F", "F03": "F", "F04": "F",
-    "FC1": "F", "FC2": "F", "FC3": "F",
+    "FC01": "F", "FC02": "F", "FC03": "F",
     "M01": "M", "M02": "M", "M03": "M", "M04": "M", "M05": "M",
-    "MC1": "M", "MC2": "M", "MC3": "M", "MC4": "M",
+    "MC01": "M", "MC02": "M", "MC03": "M", "MC04": "M",
 }
 
 
@@ -53,7 +53,17 @@ def build_manifest(torgo_root: str, mic: str = "arrayMic") -> pd.DataFrame:
     errors = _load_errors(root)
     records = []
 
-    for speaker_dir in sorted(root.iterdir()):
+    # Support both flat (torgo_root/F01) and nested (torgo_root/F/F01) layouts
+    candidates = []
+    for entry in sorted(root.iterdir()):
+        if entry.name in SEVERITY_MAP:
+            candidates.append(entry)
+        elif entry.is_dir():
+            for sub in sorted(entry.iterdir()):
+                if sub.name in SEVERITY_MAP:
+                    candidates.append(sub)
+
+    for speaker_dir in candidates:
         speaker_id = speaker_dir.name
         if speaker_id not in SEVERITY_MAP:
             continue

@@ -1007,9 +1007,11 @@ def build_dashboard():
 
 
 if __name__ == "__main__":
+    import os
     demo = build_dashboard()
+    on_spaces = os.getenv("SPACE_ID") is not None
     demo.launch(
-        share=True,
+        share=not on_spaces,  # share=True locally, False on HF Spaces
         css=CSS,
         theme=gr.themes.Base(primary_hue="indigo", neutral_hue="slate"),
     )

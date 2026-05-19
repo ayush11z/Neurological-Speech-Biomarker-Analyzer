@@ -1,6 +1,6 @@
 import os
 from dotenv import load_dotenv
-from deepgram import DeepgramClient, PrerecordedOptions
+from deepgram import DeepgramClient
 
 load_dotenv()
 
@@ -10,7 +10,7 @@ _client = None
 def _get_client() -> DeepgramClient:
     global _client
     if _client is None:
-        _client = DeepgramClient(os.getenv("DEEPGRAM_API_KEY"))
+        _client = DeepgramClient(api_key=os.getenv("DEEPGRAM_API_KEY"))
     return _client
 
 
@@ -19,9 +19,9 @@ def transcribe(audio_path: str, model: str = "nova-3"):
     with open(audio_path, "rb") as f:
         buf = f.read()
 
-    options = PrerecordedOptions(model=model, smart_format=True, language="en")
-    return _get_client().listen.rest.v("1").transcribe_file({"buffer": buf}, options)
-
+    return _get_client().listen.v1.media.transcribe_file(
+        request=buf, model=model, smart_format=True, language="en"
+    )
 
 if __name__ == "__main__":
     import sys

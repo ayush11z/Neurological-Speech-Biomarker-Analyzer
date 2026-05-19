@@ -108,7 +108,8 @@ def build_manifest(torgo_root: str, mic: str = "arrayMic") -> pd.DataFrame:
 
     df = pd.DataFrame(records)
     print(f"Manifest: {len(df)} utterances | {df['speaker_id'].nunique()} speakers")
-    print(df.groupby(["severity", "sex"])["utterance_id"].count().to_string())
+    if not df.empty:
+        print(df.groupby(["severity", "sex"])["utterance_id"].count().to_string())
     return df
 
 
@@ -118,9 +119,11 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Build TORGO manifest CSV")
     parser.add_argument("torgo_root", help="Path to TORGO dataset root directory")
     parser.add_argument("--mic", default="arrayMic", choices=["arrayMic", "headMic"])
-    parser.add_argument("--out", default="manifest.csv")
+    parser.add_argument("--out", default="data/processed/manifest.csv")
     args = parser.parse_args()
 
+    out_path = Path(args.out)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
     df = build_manifest(args.torgo_root, args.mic)
-    df.to_csv(args.out, index=False)
+    df.to_csv(out_path, index=False)
     print(f"\nSaved to {args.out}")

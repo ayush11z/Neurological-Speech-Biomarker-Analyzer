@@ -1,0 +1,10 @@
+{
+  "logistic_regression_classical": {
+    "mean_accuracy": 0.8874839874103033,
+    "std_accuracy": 0.006716075532923057
+  },
+  "mlp_classical": {
+    "mean_accuracy": 0.9566131918500613,
+    "std_accuracy": 0.004944443419310046
+  }
+}

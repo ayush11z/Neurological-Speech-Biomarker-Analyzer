@@ -11,7 +11,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from pathlib import Path
 from dotenv import load_dotenv
-from deepgram import DeepgramClient, PrerecordedOptions
+from deepgram import DeepgramClient
 from jiwer import wer as jiwer_wer
 from tqdm import tqdm
 
@@ -23,8 +23,9 @@ SEVERITY_ORDER = ["control", "mild", "mild-moderate", "moderate", "severe"]
 def _transcribe(client: DeepgramClient, wav_path: str, model: str = "nova-3") -> str:
     with open(wav_path, "rb") as f:
         buf = f.read()
-    options = PrerecordedOptions(model=model, smart_format=True, language="en")
-    resp = client.listen.rest.v("1").transcribe_file({"buffer": buf}, options)
+    resp = client.listen.v1.media.transcribe_file(
+        request=buf, model=model, smart_format=True, language="en"
+    )
     try:
         return resp.results.channels[0].alternatives[0].transcript
     except (AttributeError, IndexError):
@@ -33,7 +34,7 @@ def _transcribe(client: DeepgramClient, wav_path: str, model: str = "nova-3") ->
 
 def run_benchmark(
     manifest_path: str,
-    out_path: str = "benchmark_results.csv",
+    out_path: str = "outputs/benchmark_results.csv",
     model: str = "nova-3",
     delay: float = 0.4,
     limit: int = None,
@@ -47,6 +48,7 @@ def run_benchmark(
         df = df.head(limit)
 
     # Resume support
+    Path(out_path).parent.mkdir(parents=True, exist_ok=True)
     if Path(out_path).exists():
         done = pd.read_csv(out_path)
         done_paths = set(done["wav_path"])
@@ -59,7 +61,7 @@ def run_benchmark(
         print("All utterances already processed.")
         return pd.read_csv(out_path)
 
-    client = DeepgramClient(os.getenv("DEEPGRAM_API_KEY"))
+    client = DeepgramClient(api_key=os.getenv("DEEPGRAM_API_KEY"))
     rows = []
 
     for _, row in tqdm(df.iterrows(), total=len(df), desc="Benchmarking"):
@@ -80,7 +82,7 @@ def run_benchmark(
     return all_results
 
 
-def analyze_results(results_path: str, fig_dir: str = "figures") -> pd.DataFrame:
+def analyze_results(results_path: str, fig_dir: str = "outputs") -> pd.DataFrame:
     """Print WER summary table and save plots."""
     df = pd.read_csv(results_path)
     Path(fig_dir).mkdir(exist_ok=True)
@@ -98,6 +100,7 @@ def analyze_results(results_path: str, fig_dir: str = "figures") -> pd.DataFrame
 
     print("\n=== WER by Severity Group (Deepgram Nova-3) ===")
     print(summary.to_string())
+    summary.to_csv(f"{fig_dir}/wer_by_severity.csv")
 
     palette = sns.color_palette("RdYlGn_r", len(present_order))
 
@@ -127,6 +130,7 @@ def analyze_results(results_path: str, fig_dir: str = "figures") -> pd.DataFrame
 
     plt.tight_layout()
     fig.savefig(f"{fig_dir}/wer_by_severity.png", dpi=150, bbox_inches="tight")
+    print(f"Saved {fig_dir}/wer_by_severity.csv and {fig_dir}/wer_by_severity.png")
     plt.close()
 
     # --- Per-speaker bar chart ---
@@ -162,8 +166,8 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser(description="Benchmark Deepgram on TORGO")
-    parser.add_argument("--manifest", default="manifest.csv")
-    parser.add_argument("--out", default="benchmark_results.csv")
+    parser.add_argument("--manifest", default="data/processed/manifest.csv")
+    parser.add_argument("--out", default="outputs/benchmark_results.csv")
     parser.add_argument("--model", default="nova-3")
     parser.add_argument("--delay", type=float, default=0.4, help="Seconds between API calls")
     parser.add_argument("--limit", type=int, default=None, help="Cap utterances (for testing)")
@@ -172,4 +176,4 @@ if __name__ == "__main__":
 
     if not args.analyze_only:
         run_benchmark(args.manifest, args.out, args.model, args.delay, args.limit)
-    analyze_results(args.out)
+    analyze_results(args.out, fig_dir="outputs")

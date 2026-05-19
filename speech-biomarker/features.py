@@ -1,14 +1,12 @@
 """
 Phase 3: Acoustic Feature Extraction
-Classical features via librosa + deep embeddings via wav2vec2.
+Classical features via librosa.
 """
 import numpy as np
 import pandas as pd
 import librosa
-import torch
 from pathlib import Path
 from tqdm import tqdm
-from transformers import Wav2Vec2Processor, Wav2Vec2Model
 
 CLASSICAL_FEATURE_COLS = [
     *[f"mfcc_{i}_mean" for i in range(13)],
@@ -81,41 +79,17 @@ def extract_classical_features(wav_path: str, sr: int = 16000) -> dict:
     return feats
 
 
-class Wav2VecExtractor:
-    """Mean-pool the final hidden states of facebook/wav2vec2-base."""
-
-    def __init__(self, model_name: str = "facebook/wav2vec2-base"):
-        print(f"Loading {model_name}...")
-        self.processor = Wav2Vec2Processor.from_pretrained(model_name)
-        self.model = Wav2Vec2Model.from_pretrained(model_name)
-        self.model.eval()
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
-        self.model = self.model.to(self.device)
-        print(f"wav2vec2 on {self.device}")
-
-    @torch.no_grad()
-    def extract(self, wav_path: str, sr: int = 16000) -> np.ndarray:
-        """Returns a 768-dim float32 embedding."""
-        y, _ = librosa.load(wav_path, sr=sr)
-        inputs = self.processor(y, sampling_rate=sr, return_tensors="pt", padding=True)
-        inputs = {k: v.to(self.device) for k, v in inputs.items()}
-        out = self.model(**inputs)
-        return out.last_hidden_state.mean(dim=1).squeeze().cpu().numpy()
-
-
 def extract_all_features(
     manifest_path: str,
-    out_path: str = "features.csv",
-    embeddings_path: str = "wav2vec_embeddings.npy",
-    include_wav2vec: bool = True,
+    out_path: str = "data/processed/features.csv",
 ) -> pd.DataFrame:
     """
-    Extract features for every utterance in the manifest.
+    Extract classical features for every utterance in the manifest.
     Saves incrementally so interruptions are resumable.
     """
     df = pd.read_csv(manifest_path)
+    Path(out_path).parent.mkdir(parents=True, exist_ok=True)
 
-    # Resume support
     if Path(out_path).exists():
         done = pd.read_csv(out_path)
         done_paths = set(done["wav_path"])
@@ -129,39 +103,19 @@ def extract_all_features(
         print("All features already extracted.")
         return pd.read_csv(out_path)
 
-    wav2vec = Wav2VecExtractor() if include_wav2vec else None
-    classical_rows, embeddings = [], []
-
+    rows = []
     for _, row in tqdm(remaining.iterrows(), total=len(remaining), desc="Extracting features"):
         try:
             feats = extract_classical_features(row["wav_path"])
         except Exception as e:
-            print(f"\nClassical features failed ({row['wav_path']}): {e}")
+            print(f"\nFailed ({row['wav_path']}): {e}")
             feats = {col: 0.0 for col in CLASSICAL_FEATURE_COLS}
+        rows.append({**row.to_dict(), **feats})
 
-        classical_rows.append({**row.to_dict(), **feats})
-
-        if wav2vec:
-            try:
-                emb = wav2vec.extract(row["wav_path"])
-            except Exception as e:
-                print(f"\nwav2vec failed ({row['wav_path']}): {e}")
-                emb = np.zeros(768, dtype=np.float32)
-            embeddings.append(emb)
-
-    new_df = pd.DataFrame(classical_rows)
+    new_df = pd.DataFrame(rows)
     all_df = pd.concat([done, new_df], ignore_index=True) if len(done) else new_df
     all_df.to_csv(out_path, index=False)
     print(f"Features saved to {out_path}")
-
-    if include_wav2vec and embeddings:
-        new_emb = np.array(embeddings, dtype=np.float32)
-        if Path(embeddings_path).exists():
-            existing = np.load(embeddings_path)
-            new_emb = np.vstack([existing, new_emb])
-        np.save(embeddings_path, new_emb)
-        print(f"Embeddings saved: {new_emb.shape}")
-
     return all_df
 
 
@@ -169,11 +123,8 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser(description="Extract acoustic features from TORGO")
-    parser.add_argument("--manifest", default="manifest.csv")
-    parser.add_argument("--out", default="features.csv")
-    parser.add_argument("--embeddings", default="wav2vec_embeddings.npy")
-    parser.add_argument("--no-wav2vec", action="store_true")
+    parser.add_argument("--manifest", default="data/processed/manifest.csv")
+    parser.add_argument("--out", default="data/processed/features.csv")
     args = parser.parse_args()
 
-    extract_all_features(args.manifest, args.out, args.embeddings,
-                         include_wav2vec=not args.no_wav2vec)
+    extract_all_features(args.manifest, args.out)

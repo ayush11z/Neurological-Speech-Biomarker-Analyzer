@@ -10,7 +10,4 @@ seaborn
 scikit-learn
 joblib
 tqdm
-torch
-transformers
 gradio>=4.0
-xlrd

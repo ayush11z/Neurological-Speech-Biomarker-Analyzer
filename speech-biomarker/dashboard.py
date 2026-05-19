@@ -96,29 +96,53 @@ def _load_models():
 _load_models()
 
 
-# ── Example recordings ─────────────────────────────────────────────────────────
-_EXAMPLES: dict[str, str] = {}
+# ── Example recordings — one per speaker ──────────────────────────────────────
+_EXAMPLES: dict[str, str] = {}   # display_name → wav_path
+_EXAMPLE_CHOICES: list[str] = []
+
+_SPEAKER_ORDER = [
+    "FC01","FC02","FC03","MC01","MC02","MC03","MC04",  # controls first
+    "M02","M03",                                        # mild
+    "F03","M05",                                        # mild-moderate
+    "F01","F04","M01","M04",                            # severe
+]
 
 
 def _load_examples():
+    global _EXAMPLE_CHOICES
     manifest = DATA_DIR / "manifest.csv"
     if not manifest.exists():
         return
     df = pd.read_csv(manifest)
-    for sev in ["control", "mild", "mild-moderate", "severe"]:
-        rows = df[df["severity"] == sev]
-        if not rows.empty:
-            _EXAMPLES[sev] = rows.iloc[min(10, len(rows) - 1)]["wav_path"]
+    for spk in _SPEAKER_ORDER:
+        rows = df[df["speaker_id"] == spk].reset_index(drop=True)
+        if rows.empty:
+            continue
+        sev = rows.iloc[0]["severity"]
+        # Prefer a full-sentence utterance (≥6 words, no brackets) for reliable features
+        sentences = rows[
+            rows["ground_truth"].str.match(r"^[^\[\]]{15,}$", na=False) &
+            (rows["ground_truth"].str.split().str.len() >= 6)
+        ]
+        row = sentences.iloc[min(2, len(sentences) - 1)] if not sentences.empty else rows.iloc[0]
+        name = f"{sev.upper()}  —  {spk}"
+        _EXAMPLES[name] = row["wav_path"]
+    _EXAMPLE_CHOICES = list(_EXAMPLES.keys())
 
 
 _load_examples()
 
 
-def load_example(severity: str):
-    path = _EXAMPLES.get(severity)
+def load_example_by_name(name: str):
+    if not name and _EXAMPLE_CHOICES:
+        name = _EXAMPLE_CHOICES[0]
+    path = _EXAMPLES.get(name)
     if not path or not Path(path).exists():
+        gr.Warning(f"Audio file not found: {path}")
         return None
     y, sr = librosa.load(path, sr=16000)
+    print(f"  LOADED EXAMPLE: {name}")
+    print(f"  PATH: {path}")
     return (sr, (y * 32767).astype(np.int16))
 
 
@@ -319,8 +343,9 @@ def _plot_probs(proba_dict: dict, label: str) -> plt.Figure:
 
     fig, ax = _fig(w=5, h=3)
     _style(ax, "Severity Probabilities", "Confidence", "")
-    bars = ax.barh(order, vals, color=clrs, height=0.55, edgecolor="none", alpha=alphas)
-    for bar, val in zip(bars, vals):
+    bars = ax.barh(order, vals, color=clrs, height=0.55, edgecolor="none")
+    for bar, val, alpha in zip(bars, vals, alphas):
+        bar.set_alpha(alpha)
         ax.text(min(val + 0.02, 0.97), bar.get_y() + bar.get_height() / 2,
                 f"{val:.0%}", va="center", color=TEXT, fontsize=8, fontweight="bold")
     ax.set_xlim(0, 1.15)
@@ -424,6 +449,8 @@ _EMPTY_PLOTS = lambda: [_placeholder(t) for t in
 
 
 def analyze_audio(audio_input, ground_truth_text: str):
+    plt.close("all")  # prevent figure accumulation across calls
+
     if audio_input is None:
         return ("_(upload or record audio, then click Analyze)_",
                 '<p style="color:#475569">—</p>',
@@ -482,6 +509,30 @@ def analyze_audio(audio_input, ground_truth_text: str):
         f"**{feats.get('f0_mean', 0):.0f} Hz** mean pitch &nbsp;·&nbsp; "
         f"**{feats.get('jitter', 0):.4f}** jitter"
     )
+
+    # ── Terminal output ────────────────────────────────────────────────────
+    sep = "─" * 60
+    print(f"\n{sep}")
+    print(f"  TRANSCRIPT : {transcript or '(none)'}")
+    print(f"  SEVERITY   : {label.upper()}  ({conf:.0%} confidence)")
+    if ground_truth_text.strip():
+        try:
+            from jiwer import wer as _w
+            _score = _w(ground_truth_text.lower(), transcript.lower())
+            print(f"  WER        : {_score:.1%}")
+        except Exception:
+            pass
+    print(f"  DURATION   : {dur:.1f}s   SPEAKING RATE: {wpm} wpm")
+    print(f"  VOICED     : {feats.get('voiced_fraction', 0):.0%}   PAUSES: {feats.get('pause_ratio', 0):.0%}")
+    print(f"  MEAN F0    : {feats.get('f0_mean', 0):.1f} Hz   F0 STD: {feats.get('f0_std', 0):.1f} Hz")
+    print(f"  JITTER     : {feats.get('jitter', 0):.4f}   SHIMMER: {feats.get('shimmer', 0):.4f}   HNR: {feats.get('hnr', 0):.1f} dB")
+    if proba_dict:
+        print(f"  PROBABILITIES:")
+        for sev in SEVERITY_ORDER:
+            if sev in proba_dict:
+                bar = "█" * int(proba_dict[sev] * 20)
+                print(f"    {sev:<16} {proba_dict[sev]:.0%}  {bar}")
+    print(sep)
 
     return (
         transcript or "_(no speech detected)_",
@@ -571,6 +622,52 @@ div, section, article { background-color: transparent; }
 label span, .label-wrap span {
   color:#64748b !important; font-size:0.73em !important;
   text-transform:uppercase !important; letter-spacing:.05em !important;
+}
+
+/* ── Dropdown ── */
+.gradio-dropdown, [data-testid="dropdown"],
+.gradio-dropdown *, [data-testid="dropdown"] * {
+  background:#1e293b !important; color:#ffffff !important;
+  border-color:#475569 !important;
+}
+/* the visible selected-value container */
+.gradio-dropdown > div, [data-testid="dropdown"] > div {
+  background:#1e293b !important; border:1px solid #475569 !important;
+  border-radius:8px !important; color:#ffffff !important;
+  min-height:38px !important;
+}
+/* placeholder text */
+.gradio-dropdown input::placeholder,
+[data-testid="dropdown"] input::placeholder { color:#94a3b8 !important; }
+/* the selected text shown in the box — target every possible Gradio wrapper */
+.gradio-dropdown input, [data-testid="dropdown"] input,
+.gradio-dropdown span, [data-testid="dropdown"] span,
+.gradio-dropdown .wrap input, .gradio-dropdown .wrap span,
+[data-testid="dropdown"] .wrap input, [data-testid="dropdown"] .wrap span,
+.gradio-dropdown .multiselect, .gradio-dropdown .multiselect *,
+[data-testid="dropdown"] .multiselect, [data-testid="dropdown"] .multiselect *,
+.gradio-dropdown [data-svelte-h], [data-testid="dropdown"] [data-svelte-h],
+.gradio-dropdown .wrap, [data-testid="dropdown"] .wrap,
+.gradio-dropdown .secondary-wrap, [data-testid="dropdown"] .secondary-wrap,
+.gradio-dropdown .token, [data-testid="dropdown"] .token,
+/* catch the raw svelte list items */
+.items span, .item span, .list-items span {
+  color:#ffffff !important; font-weight:600 !important;
+}
+/* force opacity on any faded/disabled-looking element inside dropdown */
+[data-testid="dropdown"] * { opacity:1 !important; }
+/* dropdown option list popup */
+.gradio-dropdown ul, .gradio-dropdown li,
+[data-testid="dropdown"] ul, [data-testid="dropdown"] li {
+  background:#1e293b !important; color:#ffffff !important;
+}
+.gradio-dropdown li:hover, [data-testid="dropdown"] li:hover {
+  background:#273449 !important; color:#38bdf8 !important;
+}
+/* svelte-generated wrappers Gradio uses */
+select, .svelte-select, .svelte-select * {
+  background:#1e293b !important; color:#ffffff !important;
+  border:1px solid #475569 !important; border-radius:8px !important;
 }
 
 /* inputs */
@@ -765,10 +862,14 @@ def build_dashboard():
                         with gr.Group():
                             gr.HTML('<p style="color:#38bdf8;font-size:0.72em;text-transform:uppercase;'
                                     'letter-spacing:.08em;font-weight:700;margin:0 0 8px">Load Example Recording</p>')
-                            with gr.Row():
-                                ctrl_btn = gr.Button("Control",       size="sm", variant="secondary")
-                                mild_btn = gr.Button("Mild",          size="sm", variant="secondary")
-                                sev_btn  = gr.Button("Severe",        size="sm", variant="secondary")
+                            example_dd = gr.Dropdown(
+                                choices=_EXAMPLE_CHOICES,
+                                label="",
+                                value=_EXAMPLE_CHOICES[0] if _EXAMPLE_CHOICES else None,
+                                interactive=True,
+                                allow_custom_value=False,
+                            )
+                            load_ex_btn = gr.Button("▶  Load Example", size="sm", variant="secondary")
 
                         gr.HTML('<div style="height:6px"></div>')
 
@@ -830,10 +931,8 @@ def build_dashboard():
                             prob_plot   = gr.Plot(value=_placeholder("Severity Probabilities"), show_label=False)
                             imp_plot    = gr.Plot(value=_placeholder("Feature Importance"),     show_label=False)
 
-                # Wire example buttons
-                ctrl_btn.click(fn=lambda: load_example("control"),       outputs=[audio_in])
-                mild_btn.click(fn=lambda: load_example("mild"),          outputs=[audio_in])
-                sev_btn.click( fn=lambda: load_example("severe"),        outputs=[audio_in])
+                # Wire example dropdown
+                load_ex_btn.click(fn=load_example_by_name, inputs=[example_dd], outputs=[audio_in])
 
                 run_btn.click(
                     fn=analyze_audio,
